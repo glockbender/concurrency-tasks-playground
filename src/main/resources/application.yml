@@ -1,0 +1,16 @@
+spring:
+  thymeleaf.cache: false
+server:
+  port: 8084
+rmq:
+  host: localhost
+  port: 5672
+  username: guest
+  password: guest
+
+logging.level:
+  com.example.springrabbittest: DEBUG
+  org.hibernate: INFO
+  com.zaxxer.hikari: INFO
+  org.springframework: INFO
+  org.springframework.web.filter.CommonsRequestLoggingFilter: INFO

@@ -2,9 +2,7 @@ package com.example.springrabbittest
 
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.ExecutorService
+import java.util.concurrent.*
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -60,9 +58,47 @@ final class SuperTaskService(
         return executeSuperDataFlow(data, DataPriority.HIGH)
     }
 
-    fun processAsync(data: SuperData, callback: (SuperData) -> Unit, priority: DataPriority = DataPriority.LOW) {
+    /**
+     * "Долгий", последовательный вариант пакетной обработки
+     */
+    fun processBatchSequentially(data: List<SuperData>, priority: DataPriority): List<SuperData> {
+        val list = mutableListOf<SuperData>()
+        data.forEach { list.add(executeSuperDataFlow(it, priority)) }
+        return list
+    }
+
+    /**
+     * В теории, более быстрый способ пакетной обработки на основе [CompletableFuture]
+     */
+    fun processBatchInParallel(data: List<SuperData>, priority: DataPriority): List<SuperData> {
+        val futures = data.map{ CompletableFuture.supplyAsync { executeSuperDataFlow(it, priority) } }
+        return aggregateToOneListFuture(futures).get()
+    }
+
+    /**
+     * Асинхронная обработка одиночной задачи
+     */
+    fun processAsync(data: SuperData, successCallback: (SuperData) -> Unit, priority: DataPriority = DataPriority.LOW) {
         executorService.submit {
-            callback.invoke(executeSuperDataFlow(data, priority))
+            successCallback.invoke(executeSuperDataFlow(data, priority))
+        }
+    }
+
+    /**
+     * Асинхронная пакетная обработка на основе [processBatchSequentially]
+     */
+    fun processBatchSequentiallyAsync(data: List<SuperData>, successCallback: (List<SuperData>) -> Unit, priority: DataPriority = DataPriority.LOW) {
+        executorService.submit {
+            successCallback.invoke(processBatchSequentially(data, priority))
+        }
+    }
+
+    /**
+     * Асинхронная пакетная обработка на основе [processBatchInParallel]
+     */
+    fun processBatchInParallelAsync(data: List<SuperData>, successCallback: (List<SuperData>) -> Unit, priority: DataPriority = DataPriority.LOW) {
+        executorService.submit {
+            successCallback.invoke(processBatchInParallel(data, priority))
         }
     }
 
@@ -149,5 +185,11 @@ final class SuperTaskService(
                 "\n executing: ${executing.size} " +
                 "\n latches: ${flowLatches.size}" +
                 "\n done: ${doneTasks.size}")
+    }
+
+    private fun aggregateToOneListFuture(futures: List<CompletableFuture<SuperData>>): CompletableFuture<List<SuperData>> {
+        return CompletableFuture
+                .allOf(*futures.toTypedArray())
+                .thenApply { futures.asSequence().map { f -> f.join() }.toList() }
     }
 }

@@ -76,8 +76,10 @@ class SuperDataExecutor(
         afterExecute.invoke(r as SuperDataTask)
         val currCorePoolSize = this.corePoolSize
         if (currCorePoolSize > 0 && queue.size < (currCorePoolSize + 1 * 3) + 1) {
-            log.info("DECREMENT CORE POOL SIZE")
-            corePoolSize--
+            lock.withLock {
+                log.debug("DECREMENT CORE POOL SIZE")
+                if (corePoolSize > 0) corePoolSize--
+            }
         }
     }
 
@@ -85,18 +87,18 @@ class SuperDataExecutor(
             lock.withLock {
                 val currCorePoolSize = this.corePoolSize
                 if (currCorePoolSize < maximumPoolSize && queue.size > (currCorePoolSize + 1 * 3)) {
-                    log.info("INCREMENT CORE POOL SIZE")
+                    log.debug("INCREMENT CORE POOL SIZE")
                     this.corePoolSize++
                 }
-                log.info("Submitting task: {}", task)
-                log.info("QUEUE SIZE: {}, CORE POOL SIZE: {}", queue.size, corePoolSize)
+                log.debug("Submitting task: {}", task)
+                log.debug("QUEUE SIZE: {}, CORE POOL SIZE: {}", queue.size, corePoolSize)
                 execute(task)
                 task
             }
 
 
     fun toHighPriority(task: SuperDataTask) {
-        log.info("Try to high priority task: {}", task)
+        log.debug("Try to high priority task: {}", task)
 
         if (task.priority == DataPriority.HIGH) return
 
@@ -109,7 +111,7 @@ class SuperDataExecutor(
                 execute(newTask)
                 log.debug("New task executed")
             } else {
-                log.warn("Can't remove old task from queue!!!")
+                log.debug("Can't remove old task from queue!!!")
             }
         }
     }

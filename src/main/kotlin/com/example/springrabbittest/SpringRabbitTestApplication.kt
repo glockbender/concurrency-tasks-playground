@@ -5,6 +5,7 @@ import org.springframework.boot.runApplication
 import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.ThreadLocalRandom
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 @SpringBootApplication
@@ -18,12 +19,95 @@ fun main(args: Array<String>) {
 
     val cnt = AtomicInteger(1)
 
+    val nextStep = AtomicBoolean(false)
+
     fun generateData(rnd: ThreadLocalRandom, isIncrement: Boolean = true): SuperData {
         val originId = (if (isIncrement) cnt.getAndIncrement() else cnt.get()) - (if (rnd.nextBoolean()) 1 else 0)
         val id = rnd.nextInt(originId, originId + 2)
         val strValue = if (rnd.nextBoolean()) "a" else "b" + if (rnd.nextBoolean()) "id" else ""
         return SuperData(id, strValue)
     }
+
+    //Тестовый прогон batch-задач
+    executorService.submit {
+        val dataList = mutableListOf<SuperData>()
+
+        for (i in 0..10) {
+            dataList.add(SuperData(i, UUID.randomUUID().toString()))
+        }
+
+        var timeStart: Long
+
+        timeStart = System.currentTimeMillis()
+        service.processBatchSequentially(dataList, DataPriority.LOW)
+        val sequentially1low = System.currentTimeMillis() - timeStart
+
+        println("STAGE 1 COMPLETED")
+
+        timeStart = System.currentTimeMillis()
+        service.processBatchSequentially(dataList, DataPriority.LOW)
+        val sequentially2low = System.currentTimeMillis() - timeStart
+
+        println("STAGE 2 COMPLETED")
+
+        timeStart = System.currentTimeMillis()
+        service.processBatchInParallel(dataList, DataPriority.LOW)
+        val parallel1low = System.currentTimeMillis() - timeStart
+
+        println("STAGE 3 COMPLETED")
+
+        timeStart = System.currentTimeMillis()
+        service.processBatchInParallel(dataList, DataPriority.LOW)
+        val parallel2low = System.currentTimeMillis() - timeStart
+
+        println("STAGE 4 COMPLETED")
+
+        timeStart = System.currentTimeMillis()
+        service.processBatchSequentially(dataList, DataPriority.HIGH)
+        val sequentially1high = System.currentTimeMillis() - timeStart
+
+        println("STAGE 5 COMPLETED")
+
+        timeStart = System.currentTimeMillis()
+        service.processBatchSequentially(dataList, DataPriority.HIGH)
+        val sequentially2high = System.currentTimeMillis() - timeStart
+
+        println("STAGE 6 COMPLETED")
+
+        timeStart = System.currentTimeMillis()
+        service.processBatchInParallel(dataList, DataPriority.HIGH)
+        val parallel1high = System.currentTimeMillis() - timeStart
+
+        println("STAGE 7 COMPLETED")
+
+        timeStart = System.currentTimeMillis()
+        service.processBatchInParallel(dataList, DataPriority.HIGH)
+        val parallel2high = System.currentTimeMillis() - timeStart
+
+        println("STAGE 8 COMPLETED")
+
+        println("TASKS COMPLETED. RESULTS:\n" +
+                "---------------------------\n" +
+                "SEQ 1 LOW: $sequentially1low\n" +
+                "SEQ 2 LOW: $sequentially2low\n" +
+                "---------------------------\n" +
+                "PAR 1 LOW: $parallel1low\n" +
+                "PAR 2 LOW: $parallel2low\n" +
+                "---------------------------\n" +
+                "SEQ 1 HIGH: $sequentially1high\n" +
+                "SEQ 2 HIGH: $sequentially2high\n" +
+                "---------------------------\n" +
+                "PAR 1 HIGH: $parallel1high\n" +
+                "PAR 2 HIGH: $parallel2high\n" +
+                "---------------------------\n")
+        nextStep.set(true)
+    }
+
+    while (!nextStep.get()) {
+
+    }
+
+    println("START SENDING MUCH DATA!")
 
     //5 потоков с постоянно летящими рандомными данными
     for (i in 1..5) {
@@ -91,5 +175,4 @@ fun main(args: Array<String>) {
         val data = SuperData(1, "a")
         service.processLowPriority(data)
     }
-
 }

@@ -4,17 +4,39 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.locks.ReentrantLock
+import java.util.function.Supplier
 import kotlin.concurrent.withLock
 
-
-//TODO: Попробовать убрать лок, т.к. все синхронизировано. Разобраться, где не нужны Concurrent Maps
 @Service
 final class SuperTaskService(
         private val executorService: ExecutorService
 ) {
+
+    class TaskWaiter {
+
+        private val lock = ReentrantLock()
+        private val condition = lock.newCondition()
+        @Volatile
+        private var waiter: Boolean = true
+
+        fun done() {
+            lock.withLock {
+                waiter = false
+                condition.signalAll()
+            }
+        }
+
+        fun awaitTask() {
+            lock.withLock {
+                while (waiter) {
+                    condition.await()
+                }
+                condition.signalAll()
+            }
+        }
+    }
 
     private val log = LoggerFactory.getLogger(this::class.simpleName)
 
@@ -24,7 +46,7 @@ final class SuperTaskService(
 
     private val doneTasks: MutableMap<SuperData, SuperData> = ConcurrentHashMap()
 
-    private val flowLatches: MutableMap<SuperDataTask, CountDownLatch> = ConcurrentHashMap()
+    private val taskWaiters: MutableMap<SuperDataTask, TaskWaiter> = ConcurrentHashMap()
 
     private val latchSubscribers: MutableMap<SuperDataTask, Int> = ConcurrentHashMap()
 
@@ -40,11 +62,11 @@ final class SuperTaskService(
         val result =
                 if (it.value == "a") {
                     log.debug("THIS IS FAST TASK!")
-                    Thread.sleep(2000)
+                    Thread.sleep(500)
                     it.copy(value = "A")
                 } else {
                     log.debug("THIS IS SLOW TASK!")
-                    Thread.sleep(3000)
+                    Thread.sleep(750)
                     it.copy(value = it.value.capitalize())
                 }
         log.debug("TASK COMPLETED! RESULT: {}", result)
@@ -71,10 +93,12 @@ final class SuperTaskService(
     }
 
     /**
-     * В теории, более быстрый способ пакетной обработки на основе [CompletableFuture]
+     * Более быстрый (x3-4) способ пакетной обработки на основе [CompletableFuture].
+     * Таски [CompletableFuture] создаются на основе сконфигурированного [ExecutorService],
+     * т.к. в большинстве случаев [java.util.concurrent.ForkJoinPool] оказывается медленнее
      */
     fun processBatchInParallel(data: List<SuperData>, priority: DataPriority): List<SuperData> {
-        val futures = data.map { CompletableFuture.supplyAsync { executeSuperDataFlow(it, priority) } }
+        val futures = data.map { CompletableFuture.supplyAsync(Supplier { executeSuperDataFlow(it, priority) }, executorService) }
         return aggregateToOneListFuture(futures).get()
     }
 
@@ -114,7 +138,7 @@ final class SuperTaskService(
         try {
             //Для начала пробуем получить таску из ожидающих
             var task: SuperDataTask? = waits[data]
-            var latch: CountDownLatch?
+            var latch: TaskWaiter?
             //Если таски нет в ожидающих выполнения
             if (task == null) {
                 //Пробуем получить из выполняющихся
@@ -125,7 +149,7 @@ final class SuperTaskService(
                     //Пробуем получить latch (можем и не успеть)
                 } else {
                     //Тут !!, чтобы могло упасть в случае реальной ошибки
-                    latch = flowLatches[task]!!
+                    latch = taskWaiters[task]!!
                 }
             } else {
                 //Если текущий приоритет выше, чем в ожидающей таске - повышаем пока не поздно
@@ -133,21 +157,21 @@ final class SuperTaskService(
                     flowExecutor.toHighPriority(task)
                 }
                 //Тут !!, чтобы могло упасть в случае реальной ошибки
-                latch = flowLatches[task]!!
+                latch = taskWaiters[task]!!
             }
 
             //Если так и не получили latch - Задача новая.
             //Создаем новую таску и все остальное и отправляем поток ждать резульат
             if (latch == null) {
-                latch = CountDownLatch(1)
+                latch = TaskWaiter()
                 task = SuperDataTask(data, priority,
                         Runnable {
                             val result = mainFun.invoke(data)
                             doneTasks[data] = result
-                            latch.countDown()
+                            latch.done()
                         })
                 log.info("SUBMITTING NEW TASK: {}", task)
-                flowLatches[task] = latch
+                taskWaiters[task] = latch
                 latchSubscribers[task] = 1
                 waits[data] = task
                 flowExecutor.submit(task)
@@ -159,7 +183,7 @@ final class SuperTaskService(
             lock.unlock()
 
             log.debug("AWAITING RESULT...")
-            latch.await()
+            latch.awaitTask()
             log.debug("GETTING DATA...")
             printStat("AFTER AWAIT")
             val result = doneTasks[data]
@@ -171,13 +195,14 @@ final class SuperTaskService(
             log.debug("CURRENT TASK SUBSCRIBERS: {}", subscribersCount)
             if (subscribersCount == null) {
                 doneTasks.remove(data)
-                flowLatches.remove(task)
+                taskWaiters.remove(task)
             }
             log.debug("DONE!!! RESULT: {}", result)
             return result!!
         } finally {
-            if (lock.isLocked)
-                lock.unlock()
+            //Если оставить здесь доп. проверку на снятие блокировки (например в случае исключений), то возникают не оч понятные дедлоки
+//            if (lock.isLocked)
+//                lock.unlock()
             printStat("FINALLY")
         }
     }
@@ -186,7 +211,7 @@ final class SuperTaskService(
         log.debug("\n $prefix STATS: " +
                 "\n waits: ${waits.size} " +
                 "\n executing: ${executing.size} " +
-                "\n latches: ${flowLatches.size}" +
+                "\n latches: ${taskWaiters.size}" +
                 "\n done: ${doneTasks.size}")
     }
 

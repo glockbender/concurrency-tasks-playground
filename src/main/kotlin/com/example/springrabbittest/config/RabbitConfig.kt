@@ -58,48 +58,23 @@ class RabbitConfig {
     @Bean
     fun executorService(): ExecutorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() * 2)
 
-//    @Bean
-//    fun messageConverter(): MessageConverter = Jackson2JsonMessageConverter()
-
 
     companion object {
 
         /**
-         * Имя очереди SmartReserve
-         */
-        const val SR_QUEUE = "sr_queue"
-
-        /**
-         * Имя очереди CallCenter
+         * Имя очереди
          */
         const val CC_QUEUE = "my_queue"
 
         /**
-         * Имя очереди создания excel файлов
-         */
-        const val EXCEL_QUEUE = "excel_queue"
-
-        /**
-         * Routing Key SmartReserve
-         */
-        const val SR_ROUTING_KEY = "sr_rk"
-
-        /**
-         * Routing Key CallCenter
+         * Routing Key
          */
         const val CC_ROUTING_KEY = "my_rk"
-
-        /**
-         * Routing key для очереди excel файлов
-         */
-        const val EXCEL_ROUTING_KEY = "excel_rk"
 
         /**
          * Exchange для поступающих запросов на отчет
          */
         const val REPORTS_EXCHANGE = "my_ex"
-
-        const val DEAD_LETTER_QUEUE = "dead_letter"
     }
 
 }

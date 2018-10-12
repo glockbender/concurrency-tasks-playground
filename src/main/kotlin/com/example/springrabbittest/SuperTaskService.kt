@@ -20,12 +20,11 @@ final class SuperTaskService {
 
     private val doneTasks: MutableMap<SuperData, SuperData> = ConcurrentHashMap()
 
-    private val executingLatches: MutableMap<SuperDataTask, CountDownLatch> = ConcurrentHashMap()
+    private val flowLatches: MutableMap<SuperDataTask, CountDownLatch> = ConcurrentHashMap()
 
     private val latchSubscribers: MutableMap<SuperDataTask, Int> = ConcurrentHashMap()
 
     private val flowExecutor = SuperDataExecutor(
-            //onSubmit = { lock.withLock { waits[it.data] = it }  },
             beforeExecute = { task -> lock.withLock { waits.remove(task.data)?.let { executing[it.data] = it } } },
             afterExecute = { task -> lock.withLock { executing.remove(task.data) } }
     )
@@ -70,13 +69,15 @@ final class SuperTaskService {
             var latch: CountDownLatch?
             //Если таски нет в ожидающих выполнения
             if (task == null) {
+                //Пробуем получить из выполняющихся
                 task = executing[data]
                 //Если таски нет в выполняющихся - таска новая
                 if (task == null) {
                     latch = null
                     //Пробуем получить latch (можем и не успеть)
                 } else {
-                    latch = executingLatches[task]
+                    //Тут !!, чтобы могло упасть в случае реальной ошибки
+                    latch = flowLatches[task]!!
                 }
             } else {
                 //Если текущий приоритет выше, чем в ожидающей таске - повышаем пока не поздно
@@ -84,7 +85,7 @@ final class SuperTaskService {
                     flowExecutor.toHighPriority(task)
                 }
                 //Тут !!, чтобы могло упасть в случае реальной ошибки
-                latch = executingLatches[task]!!
+                latch = flowLatches[task]!!
             }
 
             //Если так и не получили latch - Задача новая.
@@ -98,7 +99,7 @@ final class SuperTaskService {
                             latch.countDown()
                         })
                 log.info("SUBMITTING NEW TASK: {}", task)
-                executingLatches[task] = latch
+                flowLatches[task] = latch
                 latchSubscribers[task] = 1
                 waits[data] = task
                 flowExecutor.submit(task)
@@ -122,7 +123,7 @@ final class SuperTaskService {
             log.debug("CURRENT TASK SUBSCRIBERS: {}", subscribersCount)
             if (subscribersCount == null) {
                 doneTasks.remove(data)
-                executingLatches.remove(task)
+                flowLatches.remove(task)
             }
             log.debug("DONE!!! RESULT: {}", result)
             return result!!
@@ -139,7 +140,7 @@ final class SuperTaskService {
         log.debug("\n $prefix STATS: " +
                 "\n waits: ${waits.size} " +
                 "\n executing: ${executing.size} " +
-                "\n latches: ${executingLatches.size}" +
+                "\n latches: ${flowLatches.size}" +
                 "\n done: ${doneTasks.size}")
     }
 }

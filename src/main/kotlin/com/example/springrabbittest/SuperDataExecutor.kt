@@ -52,12 +52,9 @@ class SuperDataTask(
     override fun hashCode(): Int {
         return data.hashCode()
     }
-
-
 }
 
 class SuperDataExecutor(
-        //private val onSubmit: (SuperDataTask) -> Unit,
         private val beforeExecute: (SuperDataTask) -> Unit,
         private val afterExecute: (SuperDataTask) -> Unit
 ) : ThreadPoolExecutor(0, 2, 30, TimeUnit.SECONDS,
@@ -77,14 +74,12 @@ class SuperDataExecutor(
         super.afterExecute(r, t)
         log.debug("After execute: {}", r)
         afterExecute.invoke(r as SuperDataTask)
-
     }
 
     fun submit(task: SuperDataTask) =
             lock.withLock {
                 log.info("Submitting task: {}", task)
                 log.info("QUEUE SIZE: {}", queue.size)
-                //onSubmit.invoke(task)
                 execute(task)
                 task
             }

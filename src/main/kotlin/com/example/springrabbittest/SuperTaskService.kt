@@ -4,13 +4,16 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 
 //TODO: Попробовать убрать лок, т.к. все синхронизировано. Разобраться, где не нужны Concurrent Maps
 @Service
-final class SuperTaskService {
+final class SuperTaskService(
+        private val executorService: ExecutorService
+) {
 
     private val log = LoggerFactory.getLogger(this::class.simpleName)
 
@@ -55,6 +58,12 @@ final class SuperTaskService {
     fun processHighPriority(data: SuperData): SuperData {
         log.info("START PROCESSING HIGH PRIORITY DATA: {}", data)
         return executeSuperDataFlow(data, DataPriority.HIGH)
+    }
+
+    fun processAsync(data: SuperData, callback: (SuperData) -> Unit, priority: DataPriority = DataPriority.LOW) {
+        executorService.submit {
+            callback.invoke(executeSuperDataFlow(data, priority))
+        }
     }
 
     fun executeSuperDataFlow(data: SuperData, priority: DataPriority): SuperData {
@@ -132,8 +141,6 @@ final class SuperTaskService {
                 lock.unlock()
             printStat("FINALLY")
         }
-
-
     }
 
     private fun printStat(prefix: String) {

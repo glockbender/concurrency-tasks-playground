@@ -2,7 +2,10 @@ package com.example.springrabbittest
 
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
-import java.util.concurrent.*
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -71,7 +74,7 @@ final class SuperTaskService(
      * В теории, более быстрый способ пакетной обработки на основе [CompletableFuture]
      */
     fun processBatchInParallel(data: List<SuperData>, priority: DataPriority): List<SuperData> {
-        val futures = data.map{ CompletableFuture.supplyAsync { executeSuperDataFlow(it, priority) } }
+        val futures = data.map { CompletableFuture.supplyAsync { executeSuperDataFlow(it, priority) } }
         return aggregateToOneListFuture(futures).get()
     }
 

@@ -26,7 +26,7 @@ class RabbitConfig {
     fun connectionFactory(): ConnectionFactory =
             CachingConnectionFactory(host)
                     .apply {
-                        port = this@RabbitConfig.port!!
+                        port = this@RabbitConfig.port
                         username = this@RabbitConfig.username
                         setPassword(password)
                     }

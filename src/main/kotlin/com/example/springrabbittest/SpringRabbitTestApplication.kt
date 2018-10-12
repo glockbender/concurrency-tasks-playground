@@ -9,28 +9,28 @@ import java.util.concurrent.atomic.AtomicInteger
 @SpringBootApplication
 class SpringRabbitTestApplication
 
-fun booleanRandom(): Boolean = true
-
 fun main(args: Array<String>) {
     val ctx = runApplication<SpringRabbitTestApplication>(*args)
     val service = ctx.getBean(SuperTaskService::class.java)
     val executorService = ctx.getBean(ExecutorService::class.java)
+    val sender = ctx.getBean(TaskSender::class.java)
 
     val cnt = AtomicInteger(1)
 
-    fun makeRandom() {
+    fun generateData(rnd: ThreadLocalRandom, isIncrement: Boolean = true): SuperData {
+        val originId = (if (isIncrement) cnt.getAndIncrement() else cnt.get()) - (if (rnd.nextBoolean()) 1 else 0)
+        val id = rnd.nextInt(originId, originId + 2)
+        val strValue = if (rnd.nextBoolean()) "a" else "b"
+        return SuperData(id, strValue)
+    }
+
+    //5 потоков с постоянно летящими рандомными данными
+    for (i in 1..5) {
         executorService.submit {
             val rnd = ThreadLocalRandom.current()
 
-            fun rndValue(): String = if (rnd.nextBoolean()) "a" else "b"
-
-            fun rndId(): Int {
-                val origin = cnt.getAndIncrement() - if (rnd.nextBoolean()) 1 else 0
-                return rnd.nextInt(origin, origin + 2)
-            }
-
             while (true) {
-                val data = SuperData(rndId(), rndValue())
+                val data = generateData(rnd)
                 if (rnd.nextBoolean()) {
                     service.processHighPriority(data)
                 } else {
@@ -41,20 +41,16 @@ fun main(args: Array<String>) {
         }
     }
 
-    for (i in 1..5) {
-        makeRandom()
-    }
-
+    //100 тасок из рэббита
     executorService.submit {
-        val data = SuperData(2, "a")
-        service.processHighPriority(data)
+        val rnd = ThreadLocalRandom.current()
+        for (i in 1..100) {
+            sender.send(generateData(rnd, rnd.nextBoolean()))
+            Thread.sleep(2000 + rnd.nextLong(0L, 1000L))
+        }
     }
 
-    executorService.submit {
-        val data = SuperData(3, "a")
-        service.processHighPriority(data)
-    }
-
+    //Поток из 5 запросов для одной и той же таски
     executorService.submit {
         val data = SuperData(1, "a")
         service.processLowPriority(data)

@@ -57,8 +57,8 @@ class SuperDataTask(
 class SuperDataExecutor(
         private val beforeExecute: (SuperDataTask) -> Unit,
         private val afterExecute: (SuperDataTask) -> Unit
-) : ThreadPoolExecutor(0, 2, 30, TimeUnit.SECONDS,
-        PriorityBlockingQueue<SuperDataTask>(5) as PriorityBlockingQueue<Runnable>) {
+) : ThreadPoolExecutor(0, 4, 60000, TimeUnit.MILLISECONDS,
+        PriorityBlockingQueue<SuperDataTask>(32) as PriorityBlockingQueue<Runnable>) {
 
     private val log = LoggerFactory.getLogger(this::class.simpleName)
 
@@ -74,12 +74,22 @@ class SuperDataExecutor(
         super.afterExecute(r, t)
         log.debug("After execute: {}", r)
         afterExecute.invoke(r as SuperDataTask)
+        val currCorePoolSize = this.corePoolSize
+        if (currCorePoolSize > 0 && queue.size < (currCorePoolSize + 1 * 3) + 1) {
+            log.info("DECREMENT CORE POOL SIZE")
+            corePoolSize--
+        }
     }
 
     fun submit(task: SuperDataTask) =
             lock.withLock {
+                val currCorePoolSize = this.corePoolSize
+                if (currCorePoolSize < maximumPoolSize && queue.size > (currCorePoolSize + 1 * 3)) {
+                    log.info("INCREMENT CORE POOL SIZE")
+                    this.corePoolSize++
+                }
                 log.info("Submitting task: {}", task)
-                log.info("QUEUE SIZE: {}", queue.size)
+                log.info("QUEUE SIZE: {}, CORE POOL SIZE: {}", queue.size, corePoolSize)
                 execute(task)
                 task
             }

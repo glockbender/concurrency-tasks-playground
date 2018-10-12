@@ -2,6 +2,7 @@ package com.example.springrabbittest
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
+import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.AtomicInteger
@@ -20,7 +21,7 @@ fun main(args: Array<String>) {
     fun generateData(rnd: ThreadLocalRandom, isIncrement: Boolean = true): SuperData {
         val originId = (if (isIncrement) cnt.getAndIncrement() else cnt.get()) - (if (rnd.nextBoolean()) 1 else 0)
         val id = rnd.nextInt(originId, originId + 2)
-        val strValue = if (rnd.nextBoolean()) "a" else "b"
+        val strValue = if (rnd.nextBoolean()) "a" else "b" + if (rnd.nextBoolean()) "id" else ""
         return SuperData(id, strValue)
     }
 
@@ -30,23 +31,32 @@ fun main(args: Array<String>) {
             val rnd = ThreadLocalRandom.current()
 
             while (true) {
+                Thread.sleep(500 * i + rnd.nextLong(0L, 1000L))
                 val data = generateData(rnd)
                 if (rnd.nextBoolean()) {
                     service.processHighPriority(data)
                 } else {
                     service.processLowPriority(data)
                 }
-                Thread.sleep(500 + rnd.nextLong(0L, 1000L))
             }
         }
     }
 
-    //100 тасок из рэббита
+    //90 быстро летящих уникальных данных. Подразумевают нагрузку на старте
+    executorService.submit {
+        var i = 10
+        while (i < 100) {
+            Thread.sleep(100)
+            service.processAsync(SuperData(i++, UUID.randomUUID().toString()), {}, DataPriority.LOW)
+        }
+    }
+
+    //20 тасок из рэббита
     executorService.submit {
         val rnd = ThreadLocalRandom.current()
-        for (i in 1..100) {
-            sender.send(generateData(rnd, rnd.nextBoolean()))
+        for (i in 1..20) {
             Thread.sleep(2000 + rnd.nextLong(0L, 1000L))
+            sender.send(generateData(rnd, rnd.nextBoolean()))
         }
     }
 
